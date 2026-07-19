@@ -18,5 +18,7 @@ export type Movie = {
     thumbnail_url: string | null;
     seen: boolean;
     added_by: string;
+    category: string | null;
+    tmdb_id: number | null;
     created_at: string;
 }

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from './lib/supabase'
 import type { Movie } from './lib/supabase'
-import { posterUrl, releaseYear, searchMovies } from './lib/tmdb'
+import { posterUrl, primaryCategory, releaseYear, searchMovies } from './lib/tmdb'
 import type { TmdbMovie } from './lib/tmdb'
+import MovieDetail from './MovieDetail'
 import './App.css'
 
 type Tab = 'toWatch' | 'seen'
@@ -96,6 +97,8 @@ function AddMovieForm({
         thumbnail_url: tmdbMovie.poster_path
           ? posterUrl(tmdbMovie.poster_path)
           : null,
+        category: primaryCategory(tmdbMovie.genre_ids),
+        tmdb_id: tmdbMovie.id,
         added_by: username,
       })
       .select()
@@ -163,24 +166,28 @@ function AddMovieForm({
 function MovieCard({
   movie,
   onToggleSeen,
+  onOpen,
 }: {
   movie: Movie
   onToggleSeen: (movie: Movie) => void
+  onOpen: (movie: Movie) => void
 }) {
   return (
     <li className="movie-card">
-      {movie.thumbnail_url ? (
-        <img className="poster" src={movie.thumbnail_url} alt="" />
-      ) : (
-        <div className="poster poster-placeholder">🎬</div>
-      )}
-      <div className="movie-info">
-        <span className="movie-title">
-          {movie.title}
-          {movie.year && <span className="movie-year"> ({movie.year})</span>}
-        </span>
-        <span className="movie-meta">ajouté par {movie.added_by}</span>
-      </div>
+      <button className="movie-open" onClick={() => onOpen(movie)}>
+        {movie.thumbnail_url ? (
+          <img className="poster" src={movie.thumbnail_url} alt="" />
+        ) : (
+          <div className="poster poster-placeholder">🎬</div>
+        )}
+        <div className="movie-info">
+          <span className="movie-title">
+            {movie.title}
+            {movie.year && <span className="movie-year"> ({movie.year})</span>}
+          </span>
+          <span className="movie-meta">ajouté par {movie.added_by}</span>
+        </div>
+      </button>
       <button
         className={movie.seen ? 'seen-button is-seen' : 'seen-button'}
         onClick={() => onToggleSeen(movie)}
@@ -200,6 +207,8 @@ function App() {
   const [tab, setTab] = useState<Tab>('toWatch')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [categoryFilter, setCategoryFilter] = useState('all')
 
   // Insert or replace a movie in local state (dedupes realtime echoes of our own writes).
   function upsertMovie(movie: Movie) {
@@ -264,21 +273,72 @@ function App() {
     return <NamePrompt onSubmit={chooseUsername} />
   }
 
+  // Reading the selected movie from the list keeps the detail page in sync
+  // with realtime updates (e.g. someone marks it as seen).
+  const selectedMovie = movies.find((m) => m.id === selectedId)
+  if (selectedMovie) {
+    return (
+      <MovieDetail movie={selectedMovie} onBack={() => setSelectedId(null)} />
+    )
+  }
+
   const visibleMovies = movies.filter((m) => (tab === 'seen' ? m.seen : !m.seen))
   const toWatchCount = movies.filter((m) => !m.seen).length
   const seenCount = movies.length - toWatchCount
+
+  // Group by category, alphabetical order, "Autre" always last.
+  const categoryGroups = new Map<string, Movie[]>()
+  for (const movie of visibleMovies) {
+    const category = movie.category ?? 'Autre'
+    const group = categoryGroups.get(category)
+    if (group) group.push(movie)
+    else categoryGroups.set(category, [movie])
+  }
+  const sortedCategories = [...categoryGroups.keys()].sort((a, b) => {
+    if (a === 'Autre') return 1
+    if (b === 'Autre') return -1
+    return a.localeCompare(b, 'fr')
+  })
+
+  // Fall back to "all" if the picked category vanished from the current view
+  // (tab switch, realtime update...).
+  const activeCategory = categoryGroups.has(categoryFilter) ? categoryFilter : 'all'
+  const displayedCategories =
+    activeCategory === 'all' ? sortedCategories : [activeCategory]
 
   return (
     <div className="app">
       <header>
         <h1>🎬 Argus</h1>
-        <button
-          className="username"
-          onClick={() => setUsername('')}
-          title="Changer de prénom"
-        >
-          {username}
-        </button>
+        <div className="header-controls">
+          <nav className="seen-switch">
+            <button
+              className={tab === 'toWatch' ? 'switch-option active' : 'switch-option'}
+              onClick={() => {
+                setTab('toWatch')
+                setCategoryFilter('all')
+              }}
+            >
+              À voir ({toWatchCount})
+            </button>
+            <button
+              className={tab === 'seen' ? 'switch-option active' : 'switch-option'}
+              onClick={() => {
+                setTab('seen')
+                setCategoryFilter('all')
+              }}
+            >
+              Vus ({seenCount})
+            </button>
+          </nav>
+          <button
+            className="username"
+            onClick={() => setUsername('')}
+            title="Changer de prénom"
+          >
+            {username}
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -289,20 +349,28 @@ function App() {
 
       <AddMovieForm username={username} onAdded={upsertMovie} onError={setError} />
 
-      <nav className="tabs">
-        <button
-          className={tab === 'toWatch' ? 'tab active' : 'tab'}
-          onClick={() => setTab('toWatch')}
-        >
-          À voir ({toWatchCount})
-        </button>
-        <button
-          className={tab === 'seen' ? 'tab active' : 'tab'}
-          onClick={() => setTab('seen')}
-        >
-          Vus ({seenCount})
-        </button>
-      </nav>
+      {visibleMovies.length > 0 && (
+        <nav className="category-pills">
+          <button
+            className={activeCategory === 'all' ? 'pill active' : 'pill'}
+            onClick={() => setCategoryFilter('all')}
+          >
+            Tous <span className="pill-count">{visibleMovies.length}</span>
+          </button>
+          {sortedCategories.map((category) => (
+            <button
+              key={category}
+              className={activeCategory === category ? 'pill active' : 'pill'}
+              onClick={() => setCategoryFilter(category)}
+            >
+              {category}{' '}
+              <span className="pill-count">
+                {categoryGroups.get(category)!.length}
+              </span>
+            </button>
+          ))}
+        </nav>
+      )}
 
       {loading ? (
         <p className="empty-state">Chargement…</p>
@@ -313,11 +381,21 @@ function App() {
             : 'Aucun film vu pour le moment.'}
         </p>
       ) : (
-        <ul className="movie-list">
-          {visibleMovies.map((movie) => (
-            <MovieCard key={movie.id} movie={movie} onToggleSeen={toggleSeen} />
-          ))}
-        </ul>
+        displayedCategories.map((category) => (
+          <section key={category} className="category-section">
+            <h2 className="category-title">{category}</h2>
+            <ul className="movie-list">
+              {categoryGroups.get(category)!.map((movie) => (
+                <MovieCard
+                  key={movie.id}
+                  movie={movie}
+                  onToggleSeen={toggleSeen}
+                  onOpen={(m) => setSelectedId(m.id)}
+                />
+              ))}
+            </ul>
+          </section>
+        ))
       )}
     </div>
   )
