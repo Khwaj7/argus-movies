@@ -379,6 +379,107 @@ div.detail-poster {
   margin: 0.35rem 0;
 }
 
+.provider-list {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.provider-item {
+  position: relative;
+}
+
+.provider-item > a {
+  display: block;
+}
+
+.provider-button {
+  display: block;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.provider-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+}
+
+.provider-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+
+.provider-menu a {
+  padding: 0.55rem 1rem;
+  color: var(--text-h);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.provider-menu a + a {
+  border-top: 1px solid var(--border);
+}
+
+.provider-menu a:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.provider-logo {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  transition: transform 0.15s;
+}
+
+.provider-item:hover .provider-logo {
+  transform: scale(1.12);
+}
+
+/* Instant tooltip with the platform name, on devices with a pointer. */
+@media (hover: hover) {
+  .provider-item::after {
+    content: attr(data-name);
+    position: absolute;
+    bottom: calc(100% + 7px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text-h);
+    color: var(--bg);
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.35rem 0.55rem;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 1;
+  }
+
+  .provider-item:hover::after {
+    opacity: 1;
+  }
+}
+
 .detail h2 {
   color: var(--text-h);
   font-size: 1.1rem;

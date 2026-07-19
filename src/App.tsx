@@ -22,7 +22,7 @@ function NamePrompt({ onSubmit }: { onSubmit: (name: string) => void }) {
 
   return (
     <div className="name-prompt">
-      <h1>🎬 Argus</h1>
+      <h1>👁️ Iris</h1>
       <p>Choisis ton prénom pour commencer :</p>
       <form onSubmit={handleSubmit}>
         <input
@@ -309,7 +309,7 @@ function App() {
   return (
     <div className="app">
       <header>
-        <h1>🎬 Argus</h1>
+        <h1>👁️ Iris</h1>
         <div className="header-controls">
           <nav className="seen-switch">
             <button
