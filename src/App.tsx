@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from './lib/supabase'
 import type { Movie } from './lib/supabase'
@@ -165,11 +165,13 @@ function AddMovieForm({
 
 function MovieCard({
   movie,
-  onToggleSeen,
+  seen,
+  onSeen,
   onOpen,
 }: {
   movie: Movie
-  onToggleSeen: (movie: Movie) => void
+  seen: boolean
+  onSeen: (movie: Movie) => void
   onOpen: (movie: Movie) => void
 }) {
   return (
@@ -189,13 +191,69 @@ function MovieCard({
         </div>
       </button>
       <button
-        className={movie.seen ? 'seen-button is-seen' : 'seen-button'}
-        onClick={() => onToggleSeen(movie)}
-        title={movie.seen ? 'Remettre dans « À voir »' : 'Marquer comme vu'}
+        className={seen ? 'seen-button is-seen' : 'seen-button'}
+        onClick={() => onSeen(movie)}
+        title="Choisir qui a vu ce film"
       >
         ✓
       </button>
     </li>
+  )
+}
+
+function SeenPicker({
+  movie,
+  profiles,
+  initial,
+  onClose,
+  onSave,
+}: {
+  movie: Movie
+  profiles: string[]
+  initial: string[]
+  onClose: () => void
+  onSave: (selected: string[]) => void
+}) {
+  const [selected, setSelected] = useState(() => new Set(initial))
+
+  function toggle(name: string) {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Vu par…</h2>
+        <p className="modal-subtitle">{movie.title}</p>
+        <ul className="profile-options">
+          {profiles.map((name) => (
+            <li key={name}>
+              <label className="profile-option">
+                <input
+                  type="checkbox"
+                  checked={selected.has(name)}
+                  onChange={() => toggle(name)}
+                />
+                {name}
+              </label>
+            </li>
+          ))}
+        </ul>
+        <div className="modal-actions">
+          <button className="modal-cancel" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="modal-save" onClick={() => onSave([...selected])}>
+            Valider
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -209,6 +267,34 @@ function App() {
   const [error, setError] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [profiles, setProfiles] = useState<string[]>([])
+  // movie id -> names of the profiles that have seen it
+  const [seenBy, setSeenBy] = useState<Record<string, string[]>>({})
+  const [seenPickerId, setSeenPickerId] = useState<string | null>(null)
+  const [notices, setNotices] = useState<{ id: number; text: string }[]>([])
+  const noticeIdRef = useRef(0)
+  // Mirror used by the realtime handlers (their closures are from the first render).
+  const moviesRef = useRef<Movie[]>([])
+
+  useEffect(() => {
+    moviesRef.current = movies
+  }, [movies])
+
+  function sortedProfiles(names: Iterable<string>): string[] {
+    return [...names].sort((a, b) => a.localeCompare(b, 'fr'))
+  }
+
+  function pushNotice(text: string) {
+    const id = ++noticeIdRef.current
+    setNotices((current) => [...current.slice(-3), { id, text }])
+    setTimeout(() => {
+      setNotices((current) => current.filter((n) => n.id !== id))
+    }, 6000)
+  }
+
+  function dismissNotice(id: number) {
+    setNotices((current) => current.filter((n) => n.id !== id))
+  }
 
   // Insert or replace a movie in local state (dedupes realtime echoes of our own writes).
   function upsertMovie(movie: Movie) {
@@ -231,6 +317,29 @@ function App() {
         setLoading(false)
       })
 
+    supabase
+      .from('profiles')
+      .select('name')
+      .then(({ data, error }) => {
+        if (error) setError(`Chargement des profils impossible : ${error.message}`)
+        else setProfiles(sortedProfiles(data.map((p) => p.name as string)))
+      })
+
+    supabase
+      .from('movie_seen')
+      .select('movie_id, profile_name')
+      .then(({ data, error }) => {
+        if (error) {
+          setError(`Chargement des vus impossible : ${error.message}`)
+          return
+        }
+        const map: Record<string, string[]> = {}
+        for (const row of data) {
+          ;(map[row.movie_id as string] ??= []).push(row.profile_name as string)
+        }
+        setSeenBy(map)
+      })
+
     const channel = supabase
       .channel('movies-changes')
       .on(
@@ -238,8 +347,56 @@ function App() {
         { event: '*', schema: 'public', table: 'movies' },
         (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            upsertMovie(payload.new as Movie)
+            const movie = payload.new as Movie
+            upsertMovie(movie)
+            if (payload.eventType === 'INSERT') {
+              pushNotice(`🎬 « ${movie.title} » ajouté à la liste par ${movie.added_by}`)
+            }
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'profiles' },
+        (payload) => {
+          const { name } = payload.new as { name: string }
+          setProfiles((current) =>
+            current.includes(name) ? current : sortedProfiles([...current, name])
+          )
+          pushNotice(`👋 ${name} a rejoint Iris`)
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'movie_seen' },
+        (payload) => {
+          const row = payload.new as { movie_id: string; profile_name: string }
+          setSeenBy((current) => {
+            const names = current[row.movie_id] ?? []
+            if (names.includes(row.profile_name)) return current
+            return { ...current, [row.movie_id]: [...names, row.profile_name] }
+          })
+          const title = moviesRef.current.find((m) => m.id === row.movie_id)?.title
+          pushNotice(
+            title
+              ? `✓ ${row.profile_name} a vu « ${title} »`
+              : `✓ ${row.profile_name} a vu un film`
+          )
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'movie_seen' },
+        (payload) => {
+          const row = payload.old as { movie_id: string; profile_name: string }
+          setSeenBy((current) => {
+            const names = current[row.movie_id]
+            if (!names?.includes(row.profile_name)) return current
+            return {
+              ...current,
+              [row.movie_id]: names.filter((n) => n !== row.profile_name),
+            }
+          })
         }
       )
       .subscribe()
@@ -249,18 +406,59 @@ function App() {
     }
   }, [])
 
-  async function toggleSeen(movie: Movie) {
-    const nextSeen = !movie.seen
-    upsertMovie({ ...movie, seen: nextSeen })
+  // Register the current profile so it shows up in everyone's "seen by" picker.
+  useEffect(() => {
+    if (!username) return
+    supabase
+      .from('profiles')
+      .upsert({ name: username }, { ignoreDuplicates: true })
+      .then(({ error }) => {
+        if (!error) {
+          setProfiles((current) =>
+            current.includes(username)
+              ? current
+              : sortedProfiles([...current, username])
+          )
+        }
+      })
+  }, [username])
 
-    const { error } = await supabase
-      .from('movies')
-      .update({ seen: nextSeen })
-      .eq('id', movie.id)
+  async function saveSeen(movie: Movie, selected: string[]) {
+    setSeenPickerId(null)
+    const before = seenBy[movie.id] ?? []
+    const toAdd = selected.filter((name) => !before.includes(name))
+    const toRemove = before.filter((name) => !selected.includes(name))
+    if (toAdd.length === 0 && toRemove.length === 0) return
 
-    if (error) {
+    // Optimistic update; rolled back if any write fails.
+    const seen = selected.length > 0
+    setSeenBy((current) => ({ ...current, [movie.id]: selected }))
+    if (seen !== movie.seen) upsertMovie({ ...movie, seen })
+
+    const results = await Promise.all([
+      toAdd.length > 0
+        ? supabase.from('movie_seen').upsert(
+            toAdd.map((profile_name) => ({ movie_id: movie.id, profile_name })),
+            { ignoreDuplicates: true }
+          )
+        : null,
+      toRemove.length > 0
+        ? supabase
+            .from('movie_seen')
+            .delete()
+            .eq('movie_id', movie.id)
+            .in('profile_name', toRemove)
+        : null,
+      seen !== movie.seen
+        ? supabase.from('movies').update({ seen }).eq('id', movie.id)
+        : null,
+    ])
+
+    const failed = results.find((result) => result?.error)
+    if (failed) {
+      setSeenBy((current) => ({ ...current, [movie.id]: before }))
       upsertMovie(movie)
-      setError(`Mise à jour impossible : ${error.message}`)
+      setError(`Mise à jour impossible : ${failed.error!.message}`)
     }
   }
 
@@ -275,15 +473,41 @@ function App() {
 
   // Reading the selected movie from the list keeps the detail page in sync
   // with realtime updates (e.g. someone marks it as seen).
+  const noticeStack = notices.length > 0 && (
+    <div className="notice-stack">
+      {notices.map((notice) => (
+        <div
+          key={notice.id}
+          className="notice"
+          onClick={() => dismissNotice(notice.id)}
+        >
+          {notice.text}
+        </div>
+      ))}
+    </div>
+  )
+
   const selectedMovie = movies.find((m) => m.id === selectedId)
   if (selectedMovie) {
     return (
-      <MovieDetail movie={selectedMovie} onBack={() => setSelectedId(null)} />
+      <>
+        {noticeStack}
+        <MovieDetail
+          movie={selectedMovie}
+          seenBy={seenBy[selectedMovie.id] ?? []}
+          onBack={() => setSelectedId(null)}
+        />
+      </>
     )
   }
 
-  const visibleMovies = movies.filter((m) => (tab === 'seen' ? m.seen : !m.seen))
-  const toWatchCount = movies.filter((m) => !m.seen).length
+  const pickerMovie = movies.find((m) => m.id === seenPickerId)
+
+  // The tabs are personal: a movie is "seen" only if MY profile has seen it,
+  // even when others already have.
+  const seenByMe = (movie: Movie) => (seenBy[movie.id] ?? []).includes(username)
+  const visibleMovies = movies.filter((m) => (tab === 'seen' ? seenByMe(m) : !seenByMe(m)))
+  const toWatchCount = movies.filter((m) => !seenByMe(m)).length
   const seenCount = movies.length - toWatchCount
 
   // Group by category, alphabetical order, "Autre" always last.
@@ -308,6 +532,7 @@ function App() {
 
   return (
     <div className="app">
+      {noticeStack}
       <header>
         <h1>👁️ Iris</h1>
         <div className="header-controls">
@@ -389,13 +614,24 @@ function App() {
                 <MovieCard
                   key={movie.id}
                   movie={movie}
-                  onToggleSeen={toggleSeen}
+                  seen={seenByMe(movie)}
+                  onSeen={(m) => setSeenPickerId(m.id)}
                   onOpen={(m) => setSelectedId(m.id)}
                 />
               ))}
             </ul>
           </section>
         ))
+      )}
+
+      {pickerMovie && (
+        <SeenPicker
+          movie={pickerMovie}
+          profiles={profiles}
+          initial={seenBy[pickerMovie.id] ?? []}
+          onClose={() => setSeenPickerId(null)}
+          onSave={(selected) => saveSeen(pickerMovie, selected)}
+        />
       )}
     </div>
   )

@@ -36,9 +36,11 @@ function JellyfinLogo() {
 
 export default function MovieDetail({
   movie,
+  seenBy,
   onBack,
 }: {
   movie: Movie
+  seenBy: string[]
   onBack: () => void
 }) {
   const [details, setDetails] = useState<TmdbMovieDetails | null>(null)
@@ -99,7 +101,7 @@ export default function MovieDetail({
           )}
           <p className="movie-meta">
             ajouté par {movie.added_by}
-            {movie.seen && ' · vu ✓'}
+            {seenBy.length > 0 && ` · vu par ${seenBy.join(', ')}`}
           </p>
         </div>
       </div>
