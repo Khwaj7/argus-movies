@@ -1,6 +1,6 @@
 // Displayed by <VersionBadge />. Newest version first; APP_VERSION is the
 // badge shown top-right and should match CHANGELOG[0].version.
-export const APP_VERSION = '4.0'
+export const APP_VERSION = '5.0'
 
 export type ChangelogEntry = {
   version: string
@@ -10,6 +10,18 @@ export type ChangelogEntry = {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '5.0',
+    title: 'Confort & thèmes',
+    date: '2026-07-20',
+    changes: [
+      'Anti-doublons : alerte si le film est déjà dans la liste',
+      'Swipe de droite à gauche sur mobile pour marquer un film comme vu',
+      '« Tout sélectionner » dans le choix « Vu par… »',
+      'Thèmes du film affichés en étiquettes colorées sur chaque carte',
+      'Notifications personnelles (non partagées), en bas à droite',
+    ],
+  },
   {
     version: '4.0',
     title: 'Profils & activité',

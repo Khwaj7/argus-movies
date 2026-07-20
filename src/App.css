@@ -211,9 +211,17 @@ input:focus {
 
 .pill.active {
   background: var(--accent-soft);
-  border-color: var(--accent);
   color: var(--accent);
   font-weight: 600;
+}
+
+.pill-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  vertical-align: middle;
 }
 
 .pill-count {
@@ -251,7 +259,28 @@ input:focus {
   margin: 0 0 0.5rem;
 }
 
+.movie-card-wrap {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Green "seen" action revealed under the card during a right-to-left swipe. */
+.swipe-reveal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 1.4rem;
+  background: var(--success-soft);
+  color: var(--success);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
 .movie-card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.85rem;
@@ -259,6 +288,24 @@ input:focus {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.6rem 0.8rem;
+  /* Let vertical scroll pass through; horizontal drag is handled in JS. */
+  touch-action: pan-y;
+}
+
+/* One-time demo: nudge the first card left to reveal the swipe action. */
+.movie-card.swipe-hint {
+  animation: swipe-hint 1.7s ease-in-out 2;
+}
+
+@keyframes swipe-hint {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  30%,
+  55% {
+    transform: translateX(-72px);
+  }
 }
 
 .movie-open {
@@ -310,6 +357,22 @@ input:focus {
   font-weight: 400;
 }
 
+.movie-themes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.25rem 0;
+}
+
+.movie-theme {
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid;
+  border-radius: 999px;
+}
+
 .movie-meta {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -338,11 +401,18 @@ input:focus {
   color: var(--success);
 }
 
+/* On touch devices the swipe replaces the button, so hide it. */
+@media (hover: none) {
+  .seen-button {
+    display: none;
+  }
+}
+
 /* ---- Notifications ---- */
 
 .notice-stack {
   position: fixed;
-  top: 1rem;
+  bottom: 1rem;
   right: 1rem;
   z-index: 20;
   display: flex;
@@ -368,7 +438,7 @@ input:focus {
 @keyframes notice-in {
   from {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -439,6 +509,14 @@ input:focus {
   accent-color: var(--accent);
 }
 
+.profile-option.select-all {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.35rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -497,10 +575,13 @@ div.detail-poster {
   font-size: 2rem;
 }
 
-.detail-genres {
-  color: var(--accent);
-  font-weight: 600;
-  margin: 0.35rem 0;
+.detail-themes {
+  margin: 0.5rem 0;
+}
+
+.detail-themes .movie-theme {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
 }
 
 .provider-list {

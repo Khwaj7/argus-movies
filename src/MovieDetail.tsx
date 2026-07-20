@@ -3,6 +3,7 @@ import type { Movie } from './lib/supabase'
 import {
   findTmdbId,
   frenchWatchProviders,
+  genreThemes,
   getMovieDetails,
   posterUrl,
   profileUrl,
@@ -95,9 +96,17 @@ export default function MovieDetail({
             {movie.year && <span className="movie-year"> ({movie.year})</span>}
           </h1>
           {details && details.genres.length > 0 && (
-            <p className="detail-genres">
-              {details.genres.map((g) => g.name).join(' · ')}
-            </p>
+            <span className="movie-themes detail-themes">
+              {genreThemes(details.genres.map((g) => g.id)).map((theme) => (
+                <span
+                  key={theme.name}
+                  className="movie-theme"
+                  style={{ color: theme.color, borderColor: theme.color }}
+                >
+                  {theme.name}
+                </span>
+              ))}
+            </span>
           )}
           <p className="movie-meta">
             ajouté par {movie.added_by}

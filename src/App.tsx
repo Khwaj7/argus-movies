@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { CSSProperties, FormEvent, TouchEvent } from 'react'
 import { supabase } from './lib/supabase'
 import type { Movie } from './lib/supabase'
-import { posterUrl, primaryCategory, releaseYear, searchMovies } from './lib/tmdb'
+import {
+  categoryColor,
+  genreThemes,
+  getMovieGenreIds,
+  posterUrl,
+  primaryCategory,
+  releaseYear,
+  searchMovies,
+} from './lib/tmdb'
+
+type Theme = { name: string; color: string }
 import type { TmdbMovie } from './lib/tmdb'
 import MovieDetail from './MovieDetail'
 import './App.css'
@@ -10,6 +20,8 @@ import './App.css'
 type Tab = 'toWatch' | 'seen'
 
 const USERNAME_STORAGE_KEY = 'argus-username'
+const GENRES_STORAGE_KEY = 'argus-genres'
+const SWIPE_HINT_KEY = 'argus-swipe-hint-seen'
 
 function NamePrompt({ onSubmit }: { onSubmit: (name: string) => void }) {
   const [name, setName] = useState('')
@@ -42,11 +54,15 @@ function NamePrompt({ onSubmit }: { onSubmit: (name: string) => void }) {
 
 function AddMovieForm({
   username,
+  movies,
   onAdded,
+  onDuplicate,
   onError,
 }: {
   username: string
-  onAdded: (movie: Movie) => void
+  movies: Movie[]
+  onAdded: (movie: Movie, genreIds: number[]) => void
+  onDuplicate: (existing: Movie) => void
   onError: (message: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -87,13 +103,29 @@ function AddMovieForm({
 
   async function addMovie(tmdbMovie: TmdbMovie) {
     if (addingId !== null) return
+
+    // Refuse duplicates: match on TMDB id, or on title + year for legacy rows
+    // saved before tmdb_id was stored.
+    const year = releaseYear(tmdbMovie)
+    const existing = movies.find(
+      (m) =>
+        (m.tmdb_id != null && m.tmdb_id === tmdbMovie.id) ||
+        (m.title.toLowerCase() === tmdbMovie.title.toLowerCase() && m.year === year)
+    )
+    if (existing) {
+      onDuplicate(existing)
+      setQuery('')
+      setResults([])
+      return
+    }
+
     setAddingId(tmdbMovie.id)
 
     const { data, error } = await supabase
       .from('movies')
       .insert({
         title: tmdbMovie.title,
-        year: releaseYear(tmdbMovie),
+        year,
         thumbnail_url: tmdbMovie.poster_path
           ? posterUrl(tmdbMovie.poster_path)
           : null,
@@ -109,7 +141,7 @@ function AddMovieForm({
       onError(`Impossible d'ajouter le film : ${error.message}`)
       return
     }
-    onAdded(data as Movie)
+    onAdded(data as Movie, tmdbMovie.genre_ids)
     setQuery('')
     setResults([])
   }
@@ -163,40 +195,107 @@ function AddMovieForm({
   )
 }
 
+// Distance in px a horizontal drag must cover to mark a movie as seen.
+const SWIPE_THRESHOLD = 80
+
 function MovieCard({
   movie,
   seen,
+  themes,
+  hint,
   onSeen,
   onOpen,
 }: {
   movie: Movie
   seen: boolean
+  themes: Theme[]
+  hint?: boolean
   onSeen: (movie: Movie) => void
   onOpen: (movie: Movie) => void
 }) {
+  const [dragX, setDragX] = useState(0)
+  const startRef = useRef<{ x: number; y: number } | null>(null)
+  const draggingRef = useRef(false)
+
+  function onTouchStart(e: TouchEvent) {
+    startRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+    draggingRef.current = false
+  }
+
+  function onTouchMove(e: TouchEvent) {
+    if (!startRef.current) return
+    const dx = e.touches[0].clientX - startRef.current.x
+    const dy = e.touches[0].clientY - startRef.current.y
+    if (!draggingRef.current) {
+      // Commit to a horizontal drag only once it clearly beats vertical scroll.
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) draggingRef.current = true
+      else if (Math.abs(dy) > 10) {
+        startRef.current = null
+        return
+      } else return
+    }
+    // Only a right-to-left drag reveals the "seen" action.
+    setDragX(Math.max(-140, Math.min(0, dx)))
+  }
+
+  function onTouchEnd() {
+    // A committed right-to-left swipe opens the "seen by…" profile picker.
+    if (draggingRef.current && dragX <= -SWIPE_THRESHOLD) onSeen(movie)
+    startRef.current = null
+    draggingRef.current = false
+    setDragX(0)
+  }
+
+  const cardStyle: CSSProperties = {
+    transform: dragX ? `translateX(${dragX}px)` : undefined,
+    transition: dragX ? 'none' : 'transform 0.2s ease',
+  }
+
   return (
-    <li className="movie-card">
-      <button className="movie-open" onClick={() => onOpen(movie)}>
-        {movie.thumbnail_url ? (
-          <img className="poster" src={movie.thumbnail_url} alt="" />
-        ) : (
-          <div className="poster poster-placeholder">🎬</div>
-        )}
-        <div className="movie-info">
-          <span className="movie-title">
-            {movie.title}
-            {movie.year && <span className="movie-year"> ({movie.year})</span>}
-          </span>
-          <span className="movie-meta">ajouté par {movie.added_by}</span>
-        </div>
-      </button>
-      <button
-        className={seen ? 'seen-button is-seen' : 'seen-button'}
-        onClick={() => onSeen(movie)}
-        title="Choisir qui a vu ce film"
+    <li className="movie-card-wrap">
+      <div className="swipe-reveal">Vu par…</div>
+      <div
+        className={hint ? 'movie-card swipe-hint' : 'movie-card'}
+        style={cardStyle}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       >
-        ✓
-      </button>
+        <button className="movie-open" onClick={() => onOpen(movie)}>
+          {movie.thumbnail_url ? (
+            <img className="poster" src={movie.thumbnail_url} alt="" />
+          ) : (
+            <div className="poster poster-placeholder">🎬</div>
+          )}
+          <div className="movie-info">
+            <span className="movie-title">
+              {movie.title}
+              {movie.year && <span className="movie-year"> ({movie.year})</span>}
+            </span>
+            {themes.length > 0 && (
+              <span className="movie-themes">
+                {themes.map((theme) => (
+                  <span
+                    key={theme.name}
+                    className="movie-theme"
+                    style={{ color: theme.color, borderColor: theme.color }}
+                  >
+                    {theme.name}
+                  </span>
+                ))}
+              </span>
+            )}
+            <span className="movie-meta">ajouté par {movie.added_by}</span>
+          </div>
+        </button>
+        <button
+          className={seen ? 'seen-button is-seen' : 'seen-button'}
+          onClick={() => onSeen(movie)}
+          title="Choisir qui a vu ce film"
+        >
+          ✓
+        </button>
+      </div>
     </li>
   )
 }
@@ -215,6 +314,7 @@ function SeenPicker({
   onSave: (selected: string[]) => void
 }) {
   const [selected, setSelected] = useState(() => new Set(initial))
+  const allSelected = profiles.length > 0 && profiles.every((name) => selected.has(name))
 
   function toggle(name: string) {
     setSelected((current) => {
@@ -225,11 +325,21 @@ function SeenPicker({
     })
   }
 
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(profiles))
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>Vu par…</h2>
         <p className="modal-subtitle">{movie.title}</p>
+        {profiles.length > 1 && (
+          <label className="profile-option select-all">
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+            Tout sélectionner
+          </label>
+        )}
         <ul className="profile-options">
           {profiles.map((name) => (
             <li key={name}>
@@ -273,12 +383,69 @@ function App() {
   const [seenPickerId, setSeenPickerId] = useState<string | null>(null)
   const [notices, setNotices] = useState<{ id: number; text: string }[]>([])
   const noticeIdRef = useRef(0)
-  // Mirror used by the realtime handlers (their closures are from the first render).
-  const moviesRef = useRef<Movie[]>([])
+  // One-time animated swipe demo shown to touch users.
+  const [swipeHint, setSwipeHint] = useState(false)
+  const swipeHintDone = useRef(false)
+  // movie row id -> known genre ids, cached in localStorage to colour theme
+  // borders without refetching. Seeded on add and backfilled otherwise.
+  const [genresById, setGenresById] = useState<Record<string, number[]>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(GENRES_STORAGE_KEY) ?? '{}')
+    } catch {
+      return {}
+    }
+  })
+  const fetchingGenres = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    moviesRef.current = movies
-  }, [movies])
+    localStorage.setItem(GENRES_STORAGE_KEY, JSON.stringify(genresById))
+  }, [genresById])
+
+  // Resolve a movie's full genre id list: directly by tmdb_id, or via a
+  // title/year search for legacy rows that never stored one.
+  async function loadGenreIds(movie: Movie): Promise<number[] | null> {
+    try {
+      if (movie.tmdb_id != null) return await getMovieGenreIds(movie.tmdb_id)
+      const results = await searchMovies(movie.title)
+      const best =
+        (movie.year ? results.find((r) => releaseYear(r) === movie.year) : null) ??
+        results[0]
+      return best ? best.genre_ids : null
+    } catch {
+      return null
+    }
+  }
+
+  // Backfill genre ids for any movie we haven't cached yet so its theme border
+  // reflects every genre, not just the primary category.
+  useEffect(() => {
+    const pending = movies.filter(
+      (m) => !(m.id in genresById) && !fetchingGenres.current.has(m.id)
+    )
+    if (pending.length === 0) return
+
+    pending.forEach((m) => fetchingGenres.current.add(m.id))
+    let cancelled = false
+    Promise.allSettled(
+      pending.map(async (m) => [m.id, await loadGenreIds(m)] as const)
+    ).then((results) => {
+      pending.forEach((m) => fetchingGenres.current.delete(m.id))
+      if (cancelled) return
+      const additions: Record<string, number[]> = {}
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value[1]) {
+          additions[result.value[0]] = result.value[1]
+        }
+      }
+      if (Object.keys(additions).length > 0) {
+        setGenresById((current) => ({ ...current, ...additions }))
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [movies, genresById])
 
   function sortedProfiles(names: Iterable<string>): string[] {
     return [...names].sort((a, b) => a.localeCompare(b, 'fr'))
@@ -347,11 +514,7 @@ function App() {
         { event: '*', schema: 'public', table: 'movies' },
         (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const movie = payload.new as Movie
-            upsertMovie(movie)
-            if (payload.eventType === 'INSERT') {
-              pushNotice(`🎬 « ${movie.title} » ajouté à la liste par ${movie.added_by}`)
-            }
+            upsertMovie(payload.new as Movie)
           }
         }
       )
@@ -363,7 +526,6 @@ function App() {
           setProfiles((current) =>
             current.includes(name) ? current : sortedProfiles([...current, name])
           )
-          pushNotice(`👋 ${name} a rejoint Iris`)
         }
       )
       .on(
@@ -376,12 +538,6 @@ function App() {
             if (names.includes(row.profile_name)) return current
             return { ...current, [row.movie_id]: [...names, row.profile_name] }
           })
-          const title = moviesRef.current.find((m) => m.id === row.movie_id)?.title
-          pushNotice(
-            title
-              ? `✓ ${row.profile_name} a vu « ${title} »`
-              : `✓ ${row.profile_name} a vu un film`
-          )
         }
       )
       .on(
@@ -405,6 +561,19 @@ function App() {
       supabase.removeChannel(channel)
     }
   }, [])
+
+  // Once the list is ready, play a single animated swipe demo for touch users
+  // (only the first time on this device) so they discover the gesture.
+  useEffect(() => {
+    if (swipeHintDone.current || loading || movies.length === 0) return
+    if (!window.matchMedia('(hover: none)').matches) return
+    swipeHintDone.current = true
+    if (localStorage.getItem(SWIPE_HINT_KEY)) return
+    localStorage.setItem(SWIPE_HINT_KEY, '1')
+    setSwipeHint(true)
+    const timer = setTimeout(() => setSwipeHint(false), 3400)
+    return () => clearTimeout(timer)
+  }, [loading, movies.length])
 
   // Register the current profile so it shows up in everyone's "seen by" picker.
   useEffect(() => {
@@ -460,6 +629,21 @@ function App() {
       upsertMovie(movie)
       setError(`Mise à jour impossible : ${failed.error!.message}`)
     }
+  }
+
+  function handleAdded(movie: Movie, genreIds: number[]) {
+    upsertMovie(movie)
+    setGenresById((current) => ({ ...current, [movie.id]: genreIds }))
+    pushNotice(`🎬 « ${movie.title} » ajouté à ta liste`)
+  }
+
+  // The named, coloured themes to frame and label a movie with: its full genre
+  // set when known, otherwise a single one derived from the stored category.
+  function movieThemes(movie: Movie): Theme[] {
+    const ids = genresById[movie.id]
+    const themes = ids ? genreThemes(ids) : []
+    if (themes.length > 0) return themes
+    return [{ name: movie.category ?? 'Autre', color: categoryColor(movie.category) }]
   }
 
   function chooseUsername(name: string) {
@@ -530,6 +714,12 @@ function App() {
   const displayedCategories =
     activeCategory === 'all' ? sortedCategories : [activeCategory]
 
+  // The very first card in the list demos the swipe gesture for new touch users.
+  const hintMovieId =
+    swipeHint && displayedCategories.length > 0
+      ? categoryGroups.get(displayedCategories[0])?.[0]?.id
+      : undefined
+
   return (
     <div className="app">
       {noticeStack}
@@ -572,7 +762,15 @@ function App() {
         </div>
       )}
 
-      <AddMovieForm username={username} onAdded={upsertMovie} onError={setError} />
+      <AddMovieForm
+        username={username}
+        movies={movies}
+        onAdded={handleAdded}
+        onDuplicate={(existing) =>
+          pushNotice(`⚠️ « ${existing.title} » est déjà dans la liste`)
+        }
+        onError={setError}
+      />
 
       {visibleMovies.length > 0 && (
         <nav className="category-pills">
@@ -586,8 +784,13 @@ function App() {
             <button
               key={category}
               className={activeCategory === category ? 'pill active' : 'pill'}
+              style={{ borderColor: categoryColor(category) }}
               onClick={() => setCategoryFilter(category)}
             >
+              <span
+                className="pill-dot"
+                style={{ background: categoryColor(category) }}
+              />
               {category}{' '}
               <span className="pill-count">
                 {categoryGroups.get(category)!.length}
@@ -615,6 +818,8 @@ function App() {
                   key={movie.id}
                   movie={movie}
                   seen={seenByMe(movie)}
+                  themes={movieThemes(movie)}
+                  hint={movie.id === hintMovieId}
                   onSeen={(m) => setSeenPickerId(m.id)}
                   onOpen={(m) => setSelectedId(m.id)}
                 />

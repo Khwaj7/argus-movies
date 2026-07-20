@@ -64,12 +64,91 @@ export const CATEGORY_NAMES: Record<number, string> = {
     37: 'Western',
 };
 
+// A distinct colour per genre, used to frame movie cards with the colours of
+// their themes (a movie with several genres gets a multi-colour border).
+export const CATEGORY_COLORS: Record<number, string> = {
+    28: '#e04b4b', // Action
+    12: '#e08a3c', // Aventure
+    16: '#d94f9c', // Animation
+    35: '#e6b800', // Comédie
+    80: '#7a5c99', // Crime
+    99: '#3f9e8a', // Documentaire
+    18: '#5b7fd0', // Drame
+    10751: '#5fb85f', // Familial
+    14: '#9b59b6', // Fantastique
+    36: '#a0785a', // Histoire
+    27: '#b02a2a', // Horreur
+    10402: '#d94fd9', // Musique
+    9648: '#5f76a0', // Mystère
+    10749: '#e0679c', // Romance
+    878: '#2fa8c4', // Science-Fiction
+    10770: '#8a8f99', // Téléfilm
+    53: '#c0563a', // Thriller
+    10752: '#6b7a52', // Guerre
+    37: '#b8863b', // Western
+};
+
+const DEFAULT_CATEGORY_COLOR = '#8a8f99';
+
+// The colours to frame a movie with, one per known genre, in TMDB's relevance
+// order and deduplicated. Always returns at least one colour.
+export function genreColors(genreIds: number[]): string[] {
+    const colors: string[] = [];
+    for (const id of genreIds) {
+        const color = CATEGORY_COLORS[id];
+        if (color && !colors.includes(color)) colors.push(color);
+    }
+    return colors.length > 0 ? colors : [DEFAULT_CATEGORY_COLOR];
+}
+
+// The named, coloured themes of a movie, in TMDB's relevance order and
+// deduplicated — used to label each card so its border colours are legible.
+export function genreThemes(genreIds: number[]): { name: string; color: string }[] {
+    const themes: { name: string; color: string }[] = [];
+    for (const id of genreIds) {
+        const name = CATEGORY_NAMES[id];
+        const color = CATEGORY_COLORS[id];
+        if (name && color && !themes.some((t) => t.name === name)) {
+            themes.push({ name, color });
+        }
+    }
+    return themes;
+}
+
+// Fallback for movies whose genre ids aren't known yet: colour a single-genre
+// border from the stored French category label.
+export function categoryColor(category: string | null): string {
+    if (category) {
+        for (const [id, name] of Object.entries(CATEGORY_NAMES)) {
+            if (name === category) return CATEGORY_COLORS[Number(id)] ?? DEFAULT_CATEGORY_COLOR;
+        }
+    }
+    return DEFAULT_CATEGORY_COLOR;
+}
+
 // TMDB lists genres by relevance: the first known one is the movie's category.
 export function primaryCategory(genreIds: number[]): string | null {
     for (const id of genreIds) {
         if (CATEGORY_NAMES[id]) return CATEGORY_NAMES[id];
     }
     return null;
+}
+
+// Lightweight lookup of a movie's genre ids (used to backfill the theme border
+// for rows added on another device or before genre ids were cached).
+export async function getMovieGenreIds(tmdbId: number): Promise<number[]> {
+    if (!apiKey) {
+        throw new Error('VITE_TMDB_API_KEY is not set (see .env.local).');
+    }
+    const url = new URL(`https://api.themoviedb.org/3/movie/${tmdbId}`);
+    url.searchParams.set('api_key', apiKey);
+
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`TMDB responded with status ${response.status}`);
+    }
+    const body = await response.json();
+    return (body.genres as { id: number }[]).map((g) => g.id);
 }
 
 export async function searchMovies(query: string): Promise<TmdbMovie[]> {
