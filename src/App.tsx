@@ -89,7 +89,11 @@ function AddMovieForm({
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<TmdbMovie[]>([])
   const [searching, setSearching] = useState(false)
-  const [addingId, setAddingId] = useState<number | null>(null)
+  // TMDB ids currently being inserted, and those inserted since the query last
+  // changed. Both are sets so several movies can be added from one search.
+  const [addingIds, setAddingIds] = useState<ReadonlySet<number>>(new Set())
+  const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(new Set())
+  const formRef = useRef<HTMLDivElement>(null)
 
   // Debounced TMDB search; the cancelled flag drops responses that land
   // after the query has changed.
@@ -125,7 +129,29 @@ function AddMovieForm({
   function clear() {
     setQuery('')
     setResults([])
+    setAddedIds(new Set())
   }
+
+  // Dismiss the search on a tap/click outside the form or on Escape. pointerdown
+  // covers mouse and touch alike, which is also the mobile gesture; the ✕ button
+  // below is the explicit affordance for it.
+  useEffect(() => {
+    if (!query) return
+
+    function onPointerDown(e: PointerEvent) {
+      if (!formRef.current?.contains(e.target as Node)) clear()
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') clear()
+    }
+
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [query])
 
   function reveal(movie: Movie) {
     clear()
@@ -133,7 +159,7 @@ function AddMovieForm({
   }
 
   async function addMovie(tmdbMovie: TmdbMovie) {
-    if (addingId !== null) return
+    if (addingIds.has(tmdbMovie.id) || addedIds.has(tmdbMovie.id)) return
 
     // Belt and braces: already-added results are listed apart, but a realtime
     // insert can land between render and click.
@@ -144,7 +170,7 @@ function AddMovieForm({
     }
 
     const year = releaseYear(tmdbMovie)
-    setAddingId(tmdbMovie.id)
+    setAddingIds((current) => new Set(current).add(tmdbMovie.id))
 
     const { data, error } = await supabase
       .from('movies')
@@ -160,14 +186,19 @@ function AddMovieForm({
       })
       .select()
       .single()
-    setAddingId(null)
+    setAddingIds((current) => {
+      const next = new Set(current)
+      next.delete(tmdbMovie.id)
+      return next
+    })
 
     if (error) {
       onError(`Impossible d'ajouter le film : ${error.message}`)
       return
     }
+    // The search stays open so more movies can be added from the same results.
+    setAddedIds((current) => new Set(current).add(tmdbMovie.id))
     onAdded(data as Movie, tmdbMovie.genre_ids)
-    clear()
   }
 
   const trimmed = query.trim()
@@ -176,14 +207,25 @@ function AddMovieForm({
   // append any of our rows whose title matches but that TMDB didn't return.
   const alreadyAdded: Movie[] = []
   const addable: TmdbMovie[] = []
+  // Rows added during this search, kept out of the "already in the list" group.
+  const justAdded = new Set<string>()
   for (const result of results) {
     const existing = findExisting(movies, result)
-    if (existing) alreadyAdded.push(existing)
-    else addable.push(result)
+    if (addedIds.has(result.id)) {
+      // Just added: leave the row where it is, marked, rather than let it jump
+      // to the other group and reflow the list under the next click.
+      addable.push(result)
+      if (existing) justAdded.add(existing.id)
+    } else if (existing) {
+      alreadyAdded.push(existing)
+    } else {
+      addable.push(result)
+    }
   }
   if (trimmed.length >= 2) {
     const needle = normalize(trimmed)
     for (const movie of movies) {
+      if (justAdded.has(movie.id)) continue
       if (alreadyAdded.some((m) => m.id === movie.id)) continue
       if (normalize(movie.title).includes(needle)) alreadyAdded.push(movie)
     }
@@ -192,14 +234,25 @@ function AddMovieForm({
   const hasResults = alreadyAdded.length > 0 || addable.length > 0
 
   return (
-    <div className="add-form">
-      <input
-        className="add-title"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Chercher un film à ajouter…"
-        maxLength={200}
-      />
+    <div className="add-form" ref={formRef}>
+      <div className="add-input-wrap">
+        <input
+          className="add-title"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            // A new search: stop marking the previous one's additions.
+            setAddedIds(new Set())
+          }}
+          placeholder="Chercher un film à ajouter…"
+          maxLength={200}
+        />
+        {query && (
+          <button className="add-clear" onClick={clear} title="Fermer la recherche">
+            ✕
+          </button>
+        )}
+      </div>
       {searching && <p className="search-status">Recherche…</p>}
       {!searching && trimmed.length >= 2 && !hasResults && (
         <p className="search-status">Aucun résultat.</p>
@@ -236,34 +289,38 @@ function AddMovieForm({
           {addable.length > 0 && (
             <>
               {alreadyAdded.length > 0 && <li className="search-group">Ajouter</li>}
-              {addable.map((movie) => (
-                <li key={movie.id}>
-                  <button
-                    className="search-result"
-                    disabled={addingId !== null}
-                    onClick={() => addMovie(movie)}
-                  >
-                    {movie.poster_path ? (
-                      <img
-                        className="result-poster"
-                        src={posterUrl(movie.poster_path, 92)}
-                        alt=""
-                      />
-                    ) : (
-                      <div className="result-poster poster-placeholder">🎬</div>
-                    )}
-                    <span className="result-title">
-                      {movie.title}
-                      {releaseYear(movie) && (
-                        <span className="movie-year"> ({releaseYear(movie)})</span>
+              {addable.map((movie) => {
+                const added = addedIds.has(movie.id)
+                const adding = addingIds.has(movie.id)
+                return (
+                  <li key={movie.id}>
+                    <button
+                      className={added ? 'search-result is-added' : 'search-result'}
+                      disabled={added || adding}
+                      onClick={() => addMovie(movie)}
+                    >
+                      {movie.poster_path ? (
+                        <img
+                          className="result-poster"
+                          src={posterUrl(movie.poster_path, 92)}
+                          alt=""
+                        />
+                      ) : (
+                        <div className="result-poster poster-placeholder">🎬</div>
                       )}
-                    </span>
-                    <span className="result-add">
-                      {addingId === movie.id ? '…' : '+ Ajouter'}
-                    </span>
-                  </button>
-                </li>
-              ))}
+                      <span className="result-title">
+                        {movie.title}
+                        {releaseYear(movie) && (
+                          <span className="movie-year"> ({releaseYear(movie)})</span>
+                        )}
+                      </span>
+                      <span className="result-add">
+                        {added ? '✓ Ajouté' : adding ? '…' : '+ Ajouter'}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
             </>
           )}
         </ul>

@@ -107,8 +107,36 @@ input:focus {
   margin-bottom: 1.25rem;
 }
 
+.add-input-wrap {
+  position: relative;
+}
+
 .add-title {
   width: 100%;
+  /* Room for the clear button. */
+  padding-right: 2.4rem;
+}
+
+/* Explicit way to dismiss the search — the discoverable equivalent of Escape
+   on touch devices. Sized to stay a comfortable tap target. */
+.add-clear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.add-clear:hover {
+  color: var(--text-h);
 }
 
 .search-status {
@@ -150,6 +178,16 @@ input:focus {
 .search-result:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Already added during this search: keep it legible rather than dimmed, and
+   swap the purple "+ Ajouter" for a green confirmation. */
+.search-result.is-added:disabled {
+  opacity: 1;
+}
+
+.search-result.is-added .result-add {
+  color: var(--success);
 }
 
 .result-poster {
