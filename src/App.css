@@ -177,6 +177,24 @@ input:focus {
   flex-shrink: 0;
 }
 
+/* Section headers separating movies already in the list from new ones. */
+.search-group {
+  padding: 0.4rem 0.8rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* Tab a listed movie lives in ("→ Vus"), shown instead of "+ Ajouter". */
+.result-goto {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
 .name-prompt button {
   background: var(--accent);
   color: #fff;
@@ -305,6 +323,38 @@ input:focus {
   30%,
   55% {
     transform: translateX(-72px);
+  }
+}
+
+/* Flash the card we just scrolled to from the search results. Only colour is
+   animated so it can't fight the swipe transform. */
+.movie-card.is-highlighted {
+  animation: card-highlight 2.5s ease-out;
+}
+
+@keyframes card-highlight {
+  0%,
+  60% {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  100% {
+    border-color: var(--border);
+    background: var(--card-bg);
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .movie-card.swipe-hint,
+  .movie-card.is-highlighted {
+    animation: none;
+  }
+
+  .movie-card.is-highlighted {
+    border-color: var(--accent);
+    background: var(--accent-soft);
   }
 }
 

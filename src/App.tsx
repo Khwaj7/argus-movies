@@ -19,9 +19,9 @@ import './App.css'
 
 type Tab = 'toWatch' | 'seen'
 
-const USERNAME_STORAGE_KEY = 'argus-username'
-const GENRES_STORAGE_KEY = 'argus-genres'
-const SWIPE_HINT_KEY = 'argus-swipe-hint-seen'
+const USERNAME_STORAGE_KEY = 'iris-username'
+const GENRES_STORAGE_KEY = 'iris-genres'
+const SWIPE_HINT_KEY = 'iris-swipe-hint-seen'
 
 function NamePrompt({ onSubmit }: { onSubmit: (name: string) => void }) {
   const [name, setName] = useState('')
@@ -52,17 +52,38 @@ function NamePrompt({ onSubmit }: { onSubmit: (name: string) => void }) {
   )
 }
 
+// Lowercased and stripped of accents so "amelie" matches "Amélie".
+function normalize(text: string) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+}
+
+// The row already in our list that corresponds to a TMDB result: matched on
+// TMDB id, or on title + year for legacy rows saved before tmdb_id was stored.
+function findExisting(movies: Movie[], tmdbMovie: TmdbMovie): Movie | undefined {
+  const year = releaseYear(tmdbMovie)
+  return movies.find(
+    (m) =>
+      (m.tmdb_id != null && m.tmdb_id === tmdbMovie.id) ||
+      (m.title.toLowerCase() === tmdbMovie.title.toLowerCase() && m.year === year)
+  )
+}
+
 function AddMovieForm({
   username,
   movies,
+  isSeen,
   onAdded,
-  onDuplicate,
+  onReveal,
   onError,
 }: {
   username: string
   movies: Movie[]
+  isSeen: (movie: Movie) => boolean
   onAdded: (movie: Movie, genreIds: number[]) => void
-  onDuplicate: (existing: Movie) => void
+  onReveal: (movie: Movie) => void
   onError: (message: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -101,24 +122,28 @@ function AddMovieForm({
     }
   }, [query, onError])
 
+  function clear() {
+    setQuery('')
+    setResults([])
+  }
+
+  function reveal(movie: Movie) {
+    clear()
+    onReveal(movie)
+  }
+
   async function addMovie(tmdbMovie: TmdbMovie) {
     if (addingId !== null) return
 
-    // Refuse duplicates: match on TMDB id, or on title + year for legacy rows
-    // saved before tmdb_id was stored.
-    const year = releaseYear(tmdbMovie)
-    const existing = movies.find(
-      (m) =>
-        (m.tmdb_id != null && m.tmdb_id === tmdbMovie.id) ||
-        (m.title.toLowerCase() === tmdbMovie.title.toLowerCase() && m.year === year)
-    )
+    // Belt and braces: already-added results are listed apart, but a realtime
+    // insert can land between render and click.
+    const existing = findExisting(movies, tmdbMovie)
     if (existing) {
-      onDuplicate(existing)
-      setQuery('')
-      setResults([])
+      reveal(existing)
       return
     }
 
+    const year = releaseYear(tmdbMovie)
     setAddingId(tmdbMovie.id)
 
     const { data, error } = await supabase
@@ -142,9 +167,29 @@ function AddMovieForm({
       return
     }
     onAdded(data as Movie, tmdbMovie.genre_ids)
-    setQuery('')
-    setResults([])
+    clear()
   }
+
+  const trimmed = query.trim()
+
+  // Split the TMDB results into what we already own and what can be added, then
+  // append any of our rows whose title matches but that TMDB didn't return.
+  const alreadyAdded: Movie[] = []
+  const addable: TmdbMovie[] = []
+  for (const result of results) {
+    const existing = findExisting(movies, result)
+    if (existing) alreadyAdded.push(existing)
+    else addable.push(result)
+  }
+  if (trimmed.length >= 2) {
+    const needle = normalize(trimmed)
+    for (const movie of movies) {
+      if (alreadyAdded.some((m) => m.id === movie.id)) continue
+      if (normalize(movie.title).includes(needle)) alreadyAdded.push(movie)
+    }
+  }
+
+  const hasResults = alreadyAdded.length > 0 || addable.length > 0
 
   return (
     <div className="add-form">
@@ -156,39 +201,71 @@ function AddMovieForm({
         maxLength={200}
       />
       {searching && <p className="search-status">Recherche…</p>}
-      {!searching && query.trim().length >= 2 && results.length === 0 && (
+      {!searching && trimmed.length >= 2 && !hasResults && (
         <p className="search-status">Aucun résultat.</p>
       )}
-      {results.length > 0 && (
+      {hasResults && (
         <ul className="search-results">
-          {results.map((movie) => (
-            <li key={movie.id}>
-              <button
-                className="search-result"
-                disabled={addingId !== null}
-                onClick={() => addMovie(movie)}
-              >
-                {movie.poster_path ? (
-                  <img
-                    className="result-poster"
-                    src={posterUrl(movie.poster_path, 92)}
-                    alt=""
-                  />
-                ) : (
-                  <div className="result-poster poster-placeholder">🎬</div>
-                )}
-                <span className="result-title">
-                  {movie.title}
-                  {releaseYear(movie) && (
-                    <span className="movie-year"> ({releaseYear(movie)})</span>
-                  )}
-                </span>
-                <span className="result-add">
-                  {addingId === movie.id ? '…' : '+ Ajouter'}
-                </span>
-              </button>
-            </li>
-          ))}
+          {alreadyAdded.length > 0 && (
+            <>
+              <li className="search-group">Déjà dans la liste</li>
+              {alreadyAdded.map((movie) => (
+                <li key={movie.id}>
+                  <button
+                    className="search-result"
+                    onClick={() => reveal(movie)}
+                    title="Aller au film dans la liste"
+                  >
+                    {movie.thumbnail_url ? (
+                      <img className="result-poster" src={movie.thumbnail_url} alt="" />
+                    ) : (
+                      <div className="result-poster poster-placeholder">🎬</div>
+                    )}
+                    <span className="result-title">
+                      {movie.title}
+                      {movie.year && <span className="movie-year"> ({movie.year})</span>}
+                    </span>
+                    <span className="result-goto">
+                      → {isSeen(movie) ? 'Vus' : 'À voir'}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </>
+          )}
+          {addable.length > 0 && (
+            <>
+              {alreadyAdded.length > 0 && <li className="search-group">Ajouter</li>}
+              {addable.map((movie) => (
+                <li key={movie.id}>
+                  <button
+                    className="search-result"
+                    disabled={addingId !== null}
+                    onClick={() => addMovie(movie)}
+                  >
+                    {movie.poster_path ? (
+                      <img
+                        className="result-poster"
+                        src={posterUrl(movie.poster_path, 92)}
+                        alt=""
+                      />
+                    ) : (
+                      <div className="result-poster poster-placeholder">🎬</div>
+                    )}
+                    <span className="result-title">
+                      {movie.title}
+                      {releaseYear(movie) && (
+                        <span className="movie-year"> ({releaseYear(movie)})</span>
+                      )}
+                    </span>
+                    <span className="result-add">
+                      {addingId === movie.id ? '…' : '+ Ajouter'}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </>
+          )}
         </ul>
       )}
     </div>
@@ -198,11 +275,14 @@ function AddMovieForm({
 // Distance in px a horizontal drag must cover to mark a movie as seen.
 const SWIPE_THRESHOLD = 80
 
+const cardAnchorId = (movieId: string) => `movie-${movieId}`
+
 function MovieCard({
   movie,
   seen,
   themes,
   hint,
+  highlight,
   onSeen,
   onOpen,
 }: {
@@ -210,6 +290,7 @@ function MovieCard({
   seen: boolean
   themes: Theme[]
   hint?: boolean
+  highlight?: boolean
   onSeen: (movie: Movie) => void
   onOpen: (movie: Movie) => void
 }) {
@@ -251,11 +332,16 @@ function MovieCard({
     transition: dragX ? 'none' : 'transform 0.2s ease',
   }
 
+  const cardClass = ['movie-card', hint && 'swipe-hint', highlight && 'is-highlighted']
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <li className="movie-card-wrap">
+    // The id is the scroll anchor used when a search hit is already in the list.
+    <li className="movie-card-wrap" id={cardAnchorId(movie.id)}>
       <div className="swipe-reveal">Vu par…</div>
       <div
-        className={hint ? 'movie-card swipe-hint' : 'movie-card'}
+        className={cardClass}
         style={cardStyle}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
@@ -386,6 +472,9 @@ function App() {
   // One-time animated swipe demo shown to touch users.
   const [swipeHint, setSwipeHint] = useState(false)
   const swipeHintDone = useRef(false)
+  // Movie to scroll to and flash after picking it from the search results. Held
+  // as a fresh object so picking the same movie twice retriggers the effect.
+  const [highlight, setHighlight] = useState<{ id: string } | null>(null)
   // movie row id -> known genre ids, cached in localStorage to colour theme
   // borders without refetching. Seeded on add and backfilled otherwise.
   const [genresById, setGenresById] = useState<Record<string, number[]>>(() => {
@@ -575,6 +664,18 @@ function App() {
     return () => clearTimeout(timer)
   }, [loading, movies.length])
 
+  // Bring the picked movie's card into view, then drop the flash. The tab and
+  // filter changes are batched with the highlight, so the card is already in the
+  // DOM by the time this runs.
+  useEffect(() => {
+    if (!highlight) return
+    document
+      .getElementById(cardAnchorId(highlight.id))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const timer = setTimeout(() => setHighlight(null), 2500)
+    return () => clearTimeout(timer)
+  }, [highlight])
+
   // Register the current profile so it shows up in everyone's "seen by" picker.
   useEffect(() => {
     if (!username) return
@@ -691,6 +792,15 @@ function App() {
   // even when others already have.
   const seenByMe = (movie: Movie) => (seenBy[movie.id] ?? []).includes(username)
   const visibleMovies = movies.filter((m) => (tab === 'seen' ? seenByMe(m) : !seenByMe(m)))
+
+  // Make a movie visible wherever it sits: switch to its tab, clear the category
+  // filter, then let the effect above scroll to it.
+  function revealMovie(movie: Movie) {
+    setTab(seenByMe(movie) ? 'seen' : 'toWatch')
+    setCategoryFilter('all')
+    setHighlight({ id: movie.id })
+  }
+
   const toWatchCount = movies.filter((m) => !seenByMe(m)).length
   const seenCount = movies.length - toWatchCount
 
@@ -765,10 +875,9 @@ function App() {
       <AddMovieForm
         username={username}
         movies={movies}
+        isSeen={seenByMe}
         onAdded={handleAdded}
-        onDuplicate={(existing) =>
-          pushNotice(`⚠️ « ${existing.title} » est déjà dans la liste`)
-        }
+        onReveal={revealMovie}
         onError={setError}
       />
 
@@ -820,6 +929,7 @@ function App() {
                   seen={seenByMe(movie)}
                   themes={movieThemes(movie)}
                   hint={movie.id === hintMovieId}
+                  highlight={movie.id === highlight?.id}
                   onSeen={(m) => setSeenPickerId(m.id)}
                   onOpen={(m) => setSelectedId(m.id)}
                 />
