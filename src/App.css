@@ -42,26 +42,69 @@ header {
   justify-content: flex-end;
 }
 
-.seen-switch {
+/* ---- Switches ----
+   One shape language for both top-level switches: separate rounded buttons,
+   outlined when idle, accent-filled when selected, each with a count badge.
+   They differ only in scale, which is what carries the hierarchy —
+   .media-switch (films / séries) is primary and fills the width;
+   .seen-switch (à voir / vus) is the same family one step down and hugs its
+   content, because it only applies within the list chosen above it. */
+.switch {
   display: flex;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  overflow: hidden;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
 }
 
-.switch-option {
-  background: none;
-  border: none;
-  padding: 0.35rem 0.8rem;
+.switch button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.switch-option.active {
+.switch button.active {
   background: var(--accent-soft);
+  border-color: var(--accent);
   color: var(--accent);
-  font-weight: 600;
+}
+
+/* Muted on an idle button; solid on the selected one, where the pill's usual
+   accent-soft background would vanish into the button's own. */
+.switch .pill-count {
+  background: none;
+  color: var(--text-muted);
+  padding: 0;
+  margin-left: 0;
+  font-size: 0.85rem;
+}
+
+.switch button.active .pill-count {
+  background: var(--accent);
+  color: var(--card-bg);
+  padding: 0 0.4rem;
+}
+
+/* Primary: the two lists. */
+.media-switch button {
+  flex: 1;
+  padding: 0.7rem 0.9rem;
+  font-size: 1rem;
+}
+
+/* Secondary: status within the selected list. */
+.seen-switch {
+  width: fit-content;
+}
+
+.seen-switch button {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
 }
 
 .username {
@@ -215,7 +258,7 @@ input:focus {
   flex-shrink: 0;
 }
 
-/* Section headers separating movies already in the list from new ones. */
+/* Section headers separating titles already in the list from new ones. */
 .search-group {
   padding: 0.4rem 0.8rem 0.25rem;
   font-size: 0.7rem;
@@ -225,7 +268,7 @@ input:focus {
   color: var(--text-muted);
 }
 
-/* Tab a listed movie lives in ("→ Vus"), shown instead of "+ Ajouter". */
+/* Tab a listed title lives in ("→ Vus"), shown instead of "+ Ajouter". */
 .result-goto {
   color: var(--text-muted);
   font-weight: 600;
@@ -247,28 +290,129 @@ input:focus {
   cursor: default;
 }
 
-/* ---- Category pills ---- */
-
-.category-pills {
+/* ---- Filters ----
+   Two compact dropdowns, in place of what used to be two rows of pills: a
+   trigger showing what's picked, opening a checkbox list that reuses the
+   .profile-option rows from the "vu par" modal. An empty selection means no
+   filter at all, which is why the trigger then reads "Tous". */
+/* The status toggle and both filter dropdowns share one line, since all three
+   narrow the same list. Wraps rather than squashing on a narrow screen. */
+.control-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   margin-bottom: 1.25rem;
 }
 
-.pill {
-  background: none;
+/* .switch carries a bottom margin for when it stands alone; inside the row the
+   row's own gap and margin do that job. */
+.control-row .seen-switch {
+  margin-bottom: 0;
+}
+
+.filter-select {
+  position: relative;
+}
+
+.filter-trigger {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.45rem 0.8rem;
+  background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.35rem 0.9rem;
-  color: var(--text-muted);
+  border-radius: 12px;
+  color: var(--text-h);
   font-size: 0.9rem;
 }
 
-.pill.active {
+.filter-trigger.is-active {
   background: var(--accent-soft);
-  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.filter-trigger-label {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.filter-trigger-value {
   font-weight: 600;
+}
+
+.filter-trigger.is-active .filter-trigger-value {
+  color: var(--accent);
+}
+
+.filter-caret {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.filter-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+}
+
+.filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 3;
+  min-width: 220px;
+  padding: 0.5rem 0.7rem 0.6rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+
+/* Anchor the rightmost dropdown to its right edge so it can't push the page
+   into a horizontal scroll on a narrow screen. */
+.filter-select:last-child .filter-menu {
+  left: auto;
+  right: 0;
+}
+
+.filter-clear {
+  display: block;
+  width: 100%;
+  padding: 0.2rem 0.2rem 0.5rem;
+  margin-bottom: 0.35rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.filter-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.filter-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The dot carries its own spacing in a pill; here the flex gap already does. */
+.filter-options .pill-dot {
+  margin-right: 0;
+  flex-shrink: 0;
 }
 
 .pill-dot {
@@ -291,9 +435,9 @@ input:focus {
   font-weight: 600;
 }
 
-/* ---- Movie list ---- */
+/* ---- Media list ---- */
 
-.movie-list {
+.media-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -315,7 +459,7 @@ input:focus {
   margin: 0 0 0.5rem;
 }
 
-.movie-card-wrap {
+.media-card-wrap {
   position: relative;
   border-radius: 10px;
   overflow: hidden;
@@ -335,7 +479,7 @@ input:focus {
   letter-spacing: 0.03em;
 }
 
-.movie-card {
+.media-card {
   position: relative;
   display: flex;
   align-items: center;
@@ -349,7 +493,7 @@ input:focus {
 }
 
 /* One-time demo: nudge the first card left to reveal the swipe action. */
-.movie-card.swipe-hint {
+.media-card.swipe-hint {
   animation: swipe-hint 1.7s ease-in-out 2;
 }
 
@@ -366,7 +510,7 @@ input:focus {
 
 /* Flash the card we just scrolled to from the search results. Only colour is
    animated so it can't fight the swipe transform. */
-.movie-card.is-highlighted {
+.media-card.is-highlighted {
   animation: card-highlight 2.5s ease-out;
 }
 
@@ -385,18 +529,18 @@ input:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .movie-card.swipe-hint,
-  .movie-card.is-highlighted {
+  .media-card.swipe-hint,
+  .media-card.is-highlighted {
     animation: none;
   }
 
-  .movie-card.is-highlighted {
+  .media-card.is-highlighted {
     border-color: var(--accent);
     background: var(--accent-soft);
   }
 }
 
-.movie-open {
+.media-open {
   display: flex;
   align-items: center;
   gap: 0.85rem;
@@ -425,14 +569,14 @@ input:focus {
   font-size: 1.3rem;
 }
 
-.movie-info {
+.media-info {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-.movie-title {
+.media-title {
   color: var(--text-h);
   font-weight: 600;
   overflow: hidden;
@@ -440,19 +584,19 @@ input:focus {
   white-space: nowrap;
 }
 
-.movie-year {
+.media-year {
   color: var(--text-muted);
   font-weight: 400;
 }
 
-.movie-themes {
+.media-themes {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
   margin: 0.25rem 0;
 }
 
-.movie-theme {
+.media-theme {
   font-size: 0.68rem;
   font-weight: 600;
   line-height: 1;
@@ -461,7 +605,30 @@ input:focus {
   border-radius: 999px;
 }
 
-.movie-meta {
+/* Film vs série marker. Filled and neutral so it reads as metadata, clearly
+   distinct from the outlined, colour-coded genre chips beside it. */
+.media-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* In a search row the badge sits between the poster and the ellipsised title. */
+.search-result .media-badge {
+  font-size: 0.65rem;
+}
+
+.media-meta {
   color: var(--text-muted);
   font-size: 0.85rem;
 }
@@ -667,14 +834,35 @@ div.detail-poster {
   margin: 0.5rem 0;
 }
 
-.detail-themes .movie-theme {
+.detail-themes .media-theme,
+.detail-themes .media-badge {
   font-size: 0.78rem;
   padding: 0.2rem 0.55rem;
 }
 
+/* Platforms, split by what they cost: watchable now vs needing a rental or a
+   purchase. TMDB lists a platform under both when it offers both, in which case
+   it is reported as included only. */
+.provider-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-top: 1.25rem;
+}
+
+.provider-group-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
 .provider-list {
   list-style: none;
-  margin: 1.25rem 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;

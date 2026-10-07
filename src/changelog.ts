@@ -1,6 +1,6 @@
 // Displayed by <VersionBadge />. Newest version first; APP_VERSION is the
 // badge shown top-right and should match CHANGELOG[0].version.
-export const APP_VERSION = '5.0'
+export const APP_VERSION = '6.0'
 
 export type ChangelogEntry = {
   version: string
@@ -10,6 +10,19 @@ export type ChangelogEntry = {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '6.0',
+    title: 'Films & séries',
+    date: '2026-09-27',
+    changes: [
+      'Les séries arrivent : une seule recherche pour les films et les séries',
+      'Deux listes séparées, « Films » et « Séries », au choix en haut de page',
+      "Fiche série : nombre de saisons, d'épisodes et statut (en cours, terminée…)",
+      'Nouveaux thèmes de séries : télé-réalité, talk-show, actualités, feuilleton',
+      'Filtres simplifiés : deux listes à cocher, « Thèmes » et « Ajouté par »',
+      'Plateformes séparées : à regarder directement, ou à louer / acheter',
+    ],
+  },
   {
     version: '5.0',
     title: 'Confort & thèmes',
