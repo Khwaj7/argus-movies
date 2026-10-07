@@ -342,6 +342,10 @@ input:focus {
 
 .filter-trigger-value {
   font-weight: 600;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .filter-trigger.is-active .filter-trigger-value {
@@ -373,10 +377,36 @@ input:focus {
 }
 
 /* Anchor the rightmost dropdown to its right edge so it can't push the page
-   into a horizontal scroll on a narrow screen. */
+   into a horizontal scroll. */
 .filter-select:last-child .filter-menu {
   left: auto;
   right: 0;
+}
+
+/* On a phone there isn't room to hang a 220px panel off a trigger that already
+   starts partway across the row — it would run off-screen. Below this width the
+   panel instead spans the whole control row and drops beneath it: it resolves
+   against .control-row rather than the trigger, so it can't be clipped however
+   the row happens to wrap. */
+@media (max-width: 560px) {
+  .control-row {
+    position: relative;
+  }
+
+  .filter-select {
+    position: static;
+  }
+
+  .filter-menu,
+  .filter-select:last-child .filter-menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
+
+  .filter-trigger-value {
+    max-width: 8rem;
+  }
 }
 
 .filter-clear {
